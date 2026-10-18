@@ -78,7 +78,7 @@ Compose:
 ```yaml
 build:
   args:
-    GIT_COMMIT: ${GIT_COMMIT:?GIT_COMMIT not set; run scripts/build-env.sh}
+    GIT_COMMIT: ${GIT_COMMIT:-}
     BUILD_TIME: ${BUILD_TIME:-}
 environment:
   APP_ENV: production          # or from the existing env file
@@ -86,8 +86,13 @@ volumes:
   - ./build-meta:/app/build-meta:ro   # contains release-info.json
 ```
 
-- The `:?` syntax makes Compose fail when the SHA is missing, which
-  satisfies SKILL.md section 9.
+- Enforce the SHA in the deploy script, not in the compose file. Compose
+  interpolates the whole file on every command, so `${GIT_COMMIT:?...}`
+  would also break `logs`, `ps`, `up -d db` and any helper script that
+  runs Compose without exporting the variable first. Running
+  `build-env.sh` before the first Compose call already fails the deploy
+  on a missing or invalid SHA (SKILL.md section 9), and `${GIT_COMMIT:-}`
+  leaves a manual build unidentified ("Build unknown") instead of broken.
 - Mount a **directory**, not a single file. Bind-mounting a file that
   doesn't exist yet makes Docker create a directory in its place.
 - Deploy script: `set -a; eval "$(scripts/build-env.sh)"; set +a`, then
@@ -95,7 +100,22 @@ volumes:
   flags (such as `--env-file` or `-f`).
 - Don't store `GIT_COMMIT` in `.env` files, because it changes on every
   build.
-- Verify the image with `docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' <image>`.
+- After the new container is up and healthy, check that it runs the
+  commit the deploy captured. This catches a stale image, for example
+  an `up` that reused an old tag or a build that silently dropped the
+  argument:
+
+  ```sh
+  built_sha=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container" 2>/dev/null || true)
+  if [ "$built_sha" != "$GIT_COMMIT" ]; then
+    echo "WARNING: $container reports commit '$built_sha', expected $GIT_COMMIT." >&2
+  fi
+  ```
+
+  Inspect the container, not the image tag, because the tag may already
+  point at a newer build than the one running. Warn rather than fail
+  when the switch has already happened, since failing then rolls nothing
+  back.
 - Worktree-based preview/production setups: run the capture script in the
   worktree being built.
 
