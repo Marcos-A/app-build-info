@@ -35,3 +35,7 @@ git clone https://github.com/Marcos-A/app-build-info ~/.claude/skills/app-build-
 Apps copy the scripts unchanged into their own repository (each copy carries an
 `app-build-info vN` header) rather than calling them from a shared location, so
 every repository still builds from a fresh clone. Check for drift with `diff`.
+
+## License
+
+[MIT](LICENSE)
